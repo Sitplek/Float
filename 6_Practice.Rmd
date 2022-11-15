@@ -1,0 +1,142 @@
+---
+title: '6'
+author: "Никита"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r warning = FALSE, message = FALSE}
+# Подключение библеотек(библеотека Eчtrawood не инициализирует)
+library(DescTools)
+library(caTools) 
+library(rpart)
+library(randomForest)
+library(Matrix)
+library(xgboost)
+library(caret) 
+library(tidyverse)
+```
+
+```{r}
+# Подключаем библеотеку, разделяем выборку на 0,75, 
+data <- readRDS("credit_light.rds")
+set.seed(726) 
+split <- sample.split(data$Target, SplitRatio = 0.75)
+
+train <- subset(data, split == TRUE)
+test  <- subset(data, split == FALSE)
+# Отдельный набор, куда будут записываться прогнозы моделей
+test_prediction <- test %>% select(Target)
+# смотрим общую информацию по переменной
+summary(data$Target)
+```
+
+```{r}
+# подключаем крос валидацию
+cv_params <- trainControl(
+  method = "cv",
+  number = 5)
+# Производим моделирование дерева решения
+model_cart <- rpart(Target ~ ., data = train)
+
+test_prediction$pred_cart <- predict(model_cart, test, type = "class")
+# Построение матрицы сопряженности
+confusionMatrix(data      = test_prediction$pred_cart, 
+                reference = test_prediction$Target, 
+                positive  = "1", mode = "everything")
+```
+
+```{r}
+# Моделирование
+set.seed(1)
+model_rf_simple <- randomForest(
+  Target ~ ., 
+  data  = train,
+  ntree = 100, 
+  mtry  = 4) 
+
+
+# Прогноз
+test_prediction$pred_rf_simple <- predict(model_rf_simple, test)
+
+# Матрица сопряженности
+confusionMatrix(data      = test_prediction$pred_rf_simple, 
+                reference = test_prediction$Target, 
+                positive  = "1", mode = "everything")
+#График важности переменных
+varImpPlot(model_rf_simple)
+```
+```{r}
+# Построение модели через caret
+rf_grid <- expand.grid(mtry = c(4, 6))
+```
+
+```{r}
+# Модель
+set.seed(1)
+model_rf <- train(
+  Target ~ ., 
+  data      = train, 
+  method    = "rf", 
+  trControl = cv_params, 
+  tuneGrid  = rf_grid, 
+  ntree     = 80 
+  )
+```
+
+
+```{r}
+# Свойства модели и выбранный гиперпараметр по гридсерчу
+model_rf
+```
+
+
+```{r}
+# Прогноз
+test_prediction$pred_rf_caret <- predict(model_rf, test)
+
+# Матрица сопряженности
+confusionMatrix(data      = test_prediction$pred_rf_caret, 
+                reference = test_prediction$Target, 
+                positive  = "1", mode = "everything")
+```
+
+```{r warning=FALSE}
+# задаем гиперпараметры
+xgb_grid = expand.grid(
+  eta              = c(0.1, 0.3),
+  max_depth        = c(3, 4),
+  colsample_bytree = c(0.5, 0.7),
+  subsample        = c(0.6, 0.8),
+  nrounds          = c(50, 100, 150), 
+  gamma            = 0, 
+  min_child_weight = 0)
+```
+
+```{r warning=FALSE}
+# Используем пакет xgbTRee и получаем результаты
+set.seed(849)
+model_xgb <- train(
+  Target ~ ., 
+  data      = train, 
+  method    = "xgbTree", 
+  trControl = cv_params,
+  tuneGrid  = xgb_grid
+  )
+
+model_xgb
+
+
+test_prediction$pred_xgb <- predict(model_xgb, test)
+
+confusionMatrix(data      = test_prediction$pred_xgb, 
+                reference = test_prediction$Target, 
+                positive  = "1", mode = "everything"
+                )
+```
+
+В данной практической работе мы рассмотрели такие методы анализа как дерево решений,
+случайного леса, полностью случайного леса, XGBoost.
+
+наилучшие парамметры вывел полностью случайный лес
+
